@@ -1174,8 +1174,11 @@ async function loadPlanForDate() {
 
 async function loadStockLevels() {
 	try {
-		const url = `${SCRIPT_URL}?action=getStockLevels&sheetId=${NEW_SHEET_ID}`;
-		const resp = await fetch(url);
+		const url = new URL(SCRIPT_URL);
+		url.searchParams.set('action', 'getStockLevels');
+		url.searchParams.set('sheetId', NEW_SHEET_ID);
+		url.searchParams.set('_ts', Date.now()); // cache-buster — prevents mobile browsers from serving a stale cached GET response
+		const resp = await fetch(url.toString(), { cache: 'no-store' });
 		const data = await resp.json();
 		if (data.status === 'ok') {
 			const stockByCode = {};
