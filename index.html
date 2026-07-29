@@ -1244,9 +1244,9 @@ async function loadBagsPerBatch() {
 }
 
 // Added 28 July 2026 — Label Count feature. Pulls "Packs per bag" per product code from
-// the "07. FenMeat - Jul26" Data sheet (Section 1) — a different workbook from the Master
-// File, opened server-side via the new getPacksPerBag backend action. Non-fatal if it
-// fails: Label Count hints just show blank rather than breaking the rest of the Plan screen.
+// the Master File's own DATA sheet (Column G), via the getPacksPerBag backend action.
+// Non-fatal if it fails: Label Count hints just show blank rather than breaking the rest
+// of the Plan screen.
 async function loadPacksPerBag() {
 	try {
 		const url = `${SCRIPT_URL}?action=getPacksPerBag&sheetId=${NEW_SHEET_ID}`;
@@ -2025,10 +2025,10 @@ function displayPack(p) {
 
 // Labels needed for however many bags are being packed today: each bag holds
 // packsPerBag individual packets (1 label each), plus 1 label for the outside of the
-// bag itself. Source: "07. FenMeat - Jul26" Data sheet, Section 1, "Packs per bag"
-// column — NOT RECIPES_REF's BAGS_PER_BATCH, which is a different figure (bags per
-// production batch, not packets per bag). Example: Braai Wors, 13 bags to pack,
-// 10 packs/bag -> (13*10) + 13 = 143 labels.
+// bag itself. Source: Master File, DATA sheet, Column G ("PACKS PER BAG") — NOT
+// RECIPES_REF's BAGS_PER_BATCH, which is a different figure (bags per production
+// batch, not packets per bag). Example: Braai Wors, 13 bags to pack, 10 packs/bag
+// -> (13*10) + 13 = 143 labels.
 function labelCount(p) {
 	const bags = displayPack(p);
 	if (!bags || !p.packsPerBag) return 0;
