@@ -789,6 +789,7 @@ body {
 	box-shadow: 0 1px 2px rgba(18,20,28,0.08), 0 3px 8px rgba(18,20,28,0.12);
 }
 .btn-print { background: linear-gradient(135deg, var(--charcoal), var(--steel)); color: white; }
+.btn-refresh { background: var(--platinum); color: var(--charcoal); }
 .btn-save { background: linear-gradient(135deg, var(--blue), var(--blue-deep)); color: white; }
 .btn-save:disabled { background: #ccc; box-shadow: none; cursor: not-allowed; }
 
@@ -1130,6 +1131,20 @@ function refreshRowStatus(idx) {
 		const batchesEl = document.getElementById(`status_batches_${idx}`);
 		if (batchesEl) batchesEl.textContent = !enough ? batchLabel(p) : '';
 	}
+}
+
+// Added 31 July 2026 — Refresh button. Re-runs the exact same load as picking a date,
+// pulling fresh Stock/Coldroom, Batches, Label counts, and the latest saved Trolley Plan
+// (e.g. saved from another device) — without Alex having to close and reopen the app.
+// Note: like closing and reopening, this replaces anything not yet saved with what's on
+// the server — Alex should Save first if he has unsaved changes he wants to keep.
+async function refreshApp() {
+	if (!state.date) {
+		showToast('⚠️ Select a date first', 'error');
+		return;
+	}
+	await loadPlanForDate();
+	showToast('🔄 Refreshed', 'success');
 }
 
 async function loadPlanForDate() {
@@ -1545,6 +1560,7 @@ function renderPlan() {
 		${productTable}
 		<div class="action-bar no-print">
 			<button class="btn btn-print" onclick="printPlan()">🖨️ Print</button>
+			<button class="btn btn-refresh" onclick="refreshApp()">🔄 Refresh</button>
 			<button class="btn btn-save" onclick="saveStockLevels()">💾 Save Stock</button>
 		</div>
 	`;
@@ -1631,7 +1647,13 @@ function calcRussiansTrolley(products, coldroomBatches) {
 	let totalLoose = 0;
 	RUSSIAN_CODES.forEach(code => {
 		const p = products.find(pr => pr.code === code);
-		const bagsNeeded = p ? rawNeed(p) : 0;
+		// Fix (31 July 2026): if Alex has manually typed a Produce number for this size
+		// (e.g. wants to cook extra buffer stock even though Stock/Coldroom already cover
+		// the route need), that override now drives the pooled trolley's requirement —
+		// previously this always used the calculated need and ignored any override, so
+		// "Batches required to cook today" never moved no matter what Alex typed.
+		const hasOverride = p && p.produceOverride !== null && p.produceOverride !== undefined;
+		const bagsNeeded = p ? (hasOverride ? p.produceOverride : rawNeed(p)) : 0;
 		const loose = bagsNeeded * RUSSIAN_PER_BAG[code];
 		needLoose[code] = loose;
 		totalLoose += loose;
@@ -2069,10 +2091,22 @@ function updateProduceOverride(idx, val) {
 		totalSurplusEl.className = 'summary-val ' + (totalSurplus < 0 ? 'surplus-neg' : '');
 	}
 
-	// Russian codes affect the pooled trolley's extra-capacity section — refresh it
+	// Russian codes affect the pooled trolley's requirement and extra-capacity section —
+	// recalculate the whole pool and refresh it (fix, 31 July 2026: previously the trolley
+	// card was refreshed but state.russianTrolley itself was never recalculated here, so
+	// the override never actually changed "Batches required to cook today").
 	if (RUSSIAN_CODES.includes(p.code) && state.russianTrolley) {
+		state.russianTrolley = calcRussiansTrolley(state.products, state.russianColdroomBatches);
 		const trolleyEl = document.getElementById('trolleyCard');
 		if (trolleyEl) trolleyEl.innerHTML = buildTrolleyCardHTML(state.russianTrolley, state.russianColdroomBatches);
+		// The other three Russian sizes share the same pooled loose-meat total, so one
+		// override can shift their suggested bag counts too — keep their rows in sync.
+		state.products.forEach((p2, i2) => {
+			if (RUSSIAN_CODES.includes(p2.code) && i2 !== idx) refreshProduceRow(i2);
+		});
+		// "Batches required to cook today" (Trolley Plan tab) tracks this pool's
+		// batchesNeeded, which may have just changed — refresh it live.
+		refreshTrolleyPlanCard();
 	}
 	// Polony codes affect the Polony card's Total Available/Surplus rows — refresh it
 	if (POLONY_CODES.includes(p.code) && state.polonyPlan[p.code]) {
@@ -2430,8 +2464,16 @@ function resetTrolleyPlan() {
 // order as before (after the freshly-built defaults, so it correctly overrides them).
 async function fetchSavedTrolleyPlan() {
 	try {
-		const url = `${SCRIPT_URL}?action=getTrolleyPlan&date=${state.date}&sheetId=${NEW_SHEET_ID}`;
-		const resp = await fetch(url);
+		// Fix (31 July 2026): this GET call was missing the cache-buster used elsewhere
+		// (e.g. loadStockLevels) — mobile browsers (notably iPhone Safari) could serve a
+		// stale cached response, making a plan saved on one device (e.g. Android) appear
+		// missing when opened on another (e.g. iPhone), even though it saved correctly.
+		const url = new URL(SCRIPT_URL);
+		url.searchParams.set('action', 'getTrolleyPlan');
+		url.searchParams.set('date', state.date);
+		url.searchParams.set('sheetId', NEW_SHEET_ID);
+		url.searchParams.set('_ts', Date.now());
+		const resp = await fetch(url.toString(), { cache: 'no-store' });
 		return await resp.json();
 	} catch (e) {
 		return null; // Non-fatal — falls back to the freshly-built auto-plan
