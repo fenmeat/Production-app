@@ -331,6 +331,25 @@ body {
 	font-weight: 600;
 	margin-top: 1px;
 }
+.produce-input-row {
+	display: flex;
+	gap: 6px;
+	align-items: stretch;
+}
+.produce-input-row .produce-input { flex: 1; min-width: 0; }
+.add-batch-btn {
+	flex-shrink: 0;
+	padding: 0 10px;
+	font-size: 12px;
+	font-weight: 700;
+	color: white;
+	background: var(--orange);
+	border: none;
+	border-radius: 6px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.add-batch-btn:active { opacity: 0.8; }
 
 .surplus-qty {
 	text-align: center;
@@ -1528,10 +1547,14 @@ function renderPlan() {
 						</div>` : ''}
 						<div class="prow-detail-field">
 							<label>Produce</label>
-							<input type="number" class="qty-input produce-input"
-								id="produce_${i}" value="${produce}" min="0"
-								oninput="updateProduceOverride(${i}, this.value)"
-								onfocus="this.select()">
+							<div class="produce-input-row">
+								<input type="number" class="qty-input produce-input"
+									id="produce_${i}" value="${produce}" min="0"
+									oninput="updateProduceOverride(${i}, this.value)"
+									onfocus="this.select()">
+								${tab === 'wors' && p.bagsPerBatch > 0 ? `
+								<button type="button" class="add-batch-btn" onclick="addBatch(${i})">+1 batch</button>` : ''}
+							</div>
 							<div class="produce-batches" id="batches_${i}">${batchLabel(p)}</div>
 						</div>
 						<div class="prow-detail-field">
@@ -2051,7 +2074,12 @@ function displayPack(p) {
 // RECIPES_REF's BAGS_PER_BATCH, which is a different figure (bags per production
 // batch, not packets per bag). Example: Braai Wors, 13 bags to pack, 10 packs/bag
 // -> (13*10) + 13 = 143 labels.
+// Products that never get labels printed, regardless of Pack quantity — bought-in
+// items sold loose/bulk rather than packed into individually labelled packets.
+const NO_LABEL_CODES = ['S01', 'S02', 'S03', 'O01', 'O02', 'O03']; // Six Gun 20g, Six Gun 200g, Chicken Souppack, Heads & Feet, Chicken Necks, Chicken Livers
+
 function labelCount(p) {
+	if (NO_LABEL_CODES.includes(p.code)) return 0;
 	const bags = displayPack(p);
 	if (!bags || !p.packsPerBag) return 0;
 	return bags * (p.packsPerBag + 1);
@@ -2552,6 +2580,22 @@ function updateStockField(idx, field, val) {
 
 	// Batches Required summary always stays live; manual trolley assignments are preserved
 	refreshTrolleyPlanCard();
+}
+
+// Wors screen "+1 batch" button: instead of Alex working out bags-per-batch himself and
+// typing the raw bag total, this adds exactly one batch's worth of bags on top of
+// whatever Produce currently shows (suggested or already-overridden), then saves it as
+// a manual override the same way typing into the Produce field would.
+function addBatch(idx) {
+	const p = state.products[idx];
+	const bagsPerBatch = p.bagsPerBatch || 0;
+	if (bagsPerBatch <= 0) return;
+	const newVal = displayProduce(p) + bagsPerBatch;
+	updateProduceOverride(idx, newVal);
+	const produceEl = document.getElementById(`produce_${idx}`);
+	if (produceEl) produceEl.value = newVal;
+	const batchesEl = document.getElementById(`batches_${idx}`);
+	if (batchesEl) batchesEl.textContent = batchLabel(p);
 }
 
 // Refreshes one row's Produce input (only if Alex hasn't manually overridden it), batch
