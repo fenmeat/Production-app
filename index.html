@@ -1206,7 +1206,13 @@ async function loadPlanForDate() {
 		state.russianTrolley = calcRussiansTrolley(state.products, state.russianColdroomBatches);
 		state.polonyPlan = calcPolonyPlan(state.products);
 		state.batchesRequired = calcBatchesRequired(state.products, state.russianTrolley, state.polonyPlan);
-		state.trolleyAssignments = buildDefaultTrolleyAssignments(state.batchesRequired);
+		// CHANGED 12 August 2026 — Alex plans the Trolley table manually (auto-pairing
+		// could mismatch how batches actually get cooked together); the table starts
+		// empty here and applySavedTrolleyPlan() below fills it in only if a plan was
+		// already saved for this date. "Batches required to cook today" (reqSection in
+		// buildTrolleyPlanCardHTML) is unaffected — it's calculated straight from
+		// batchesRequired, independent of trolleyAssignments.
+		state.trolleyAssignments = [];
 		state.polonyTrolleys = buildDefaultPolonyTrolleys(state.polonyPlan);
 		applySavedTrolleyPlan(savedTrolleyData); // overrides trolleyAssignments, polonyTrolleys, and produceOverride
 		state.trolleyAssignments = reconcileTrolleyAssignments(state.trolleyAssignments, state.batchesRequired);
@@ -2019,8 +2025,19 @@ function viennaBatchInfo(p) {
 	const bagsPerBatch = p.bagsPerBatch || 0;
 	const halfSize = Math.round(bagsPerBatch / 2);
 	const need = rawNeed(p);
-	if (bagsPerBatch <= 0 || need === 0) {
+	if (need === 0) {
 		return { fullBatches: 0, hasHalf: false, producedBags: 0, halfSize, bagsPerBatch };
+	}
+	if (bagsPerBatch <= 0) {
+		// FIXED 12 August 2026 — bagsPerBatch missing/not yet loaded (e.g. a slow
+		// getBagsPerBatch background call) used to make producedBags silently show
+		// 0, which made the status badge read "✅ Enough" even though nothing had
+		// actually been produced (real example: V01/V02, 13 Aug 2026, HAVE=0,
+		// NEED=36/30, showed Enough). Every other product family falls back to
+		// showing the raw unrounded Need in this situation (see batchesNeeded() /
+		// produceQty()'s rawNeed(p) fallback) — Vienna now does the same instead
+		// of zeroing out.
+		return { fullBatches: 0, hasHalf: false, producedBags: need, halfSize, bagsPerBatch };
 	}
 	const halfUnitsNeeded = Math.ceil(need / halfSize);
 	const fullBatches = Math.floor(halfUnitsNeeded / 2);
@@ -2338,28 +2355,13 @@ function reconcileTrolleyAssignments(assignments, req) {
 	result = result.filter(a => a.half1 || a.half2 || !a._stripped);
 	result.forEach(a => { delete a._stripped; });
 
-	// TOP UP SHORTFALL: same as before — add slots for anything still missing.
-	const counted = {};
-	trackedLabels.forEach(l => counted[l] = 0);
-	result.forEach(a => {
-		if (counted[a.half1] !== undefined) counted[a.half1]++;
-		if (counted[a.half2] !== undefined) counted[a.half2]++;
-	});
-
-	const missingUnits = [];
-	trackedLabels.forEach(label => {
-		const shortfall = (req[label] || 0) - counted[label];
-		for (let i = 0; i < shortfall; i++) missingUnits.push(label);
-	});
-
-	if (missingUnits.length === 0) return result;
-
-	const extraPairs = [];
-	for (let i = 0; i < missingUnits.length; i += 2) {
-		extraPairs.push({ half1: missingUnits[i] || '', half2: missingUnits[i + 1] || '' });
-	}
-
-	return result.concat(extraPairs).slice(0, MAX_TROLLEYS_PER_DAY);
+	// REMOVED 12 August 2026 — this used to also "TOP UP SHORTFALL" by auto-adding new
+	// pre-filled trolley rows whenever Produce numbers increased elsewhere. Alex plans
+	// the Trolley table manually now (auto-pairing could mismatch how batches actually
+	// get cooked together), so this function only ever strips no-longer-needed
+	// assignments — it never adds or suggests new ones. Anything still needed shows up
+	// in "Batches required to cook today" for Alex to add himself.
+	return result.slice(0, MAX_TROLLEYS_PER_DAY);
 }
 
 function trolleyHalfSelectHTML(rowIdx, halfKey, currentVal) {
@@ -2439,7 +2441,7 @@ function buildTrolleyPlanCardHTML(req, assignments, polonyTrolleys) {
 		${polonySection}
 		<div class="tp-actions no-print">
 			<button class="tp-btn" onclick="addTrolleyRow()">+ Add Trolley</button>
-			<button class="tp-btn tp-btn-reset" onclick="resetTrolleyPlan()">↺ Reset to Auto-Plan</button>
+			<button class="tp-btn tp-btn-reset" onclick="resetTrolleyPlan()">🗑️ Clear All Trolleys</button>
 			<button class="tp-btn tp-btn-save" onclick="saveTrolleyLayout()">💾 Save Layout</button>
 		</div>
 	`;
@@ -2480,8 +2482,10 @@ function removeTrolleyRow(rowIdx) {
 	renderTrolleyPlanCardOnly();
 }
 
+// CHANGED 12 August 2026 — was "reset to auto-plan"; now there's no auto-plan to reset
+// to, so this just empties the table so Alex can rebuild it from scratch.
 function resetTrolleyPlan() {
-	state.trolleyAssignments = buildDefaultTrolleyAssignments(state.batchesRequired);
+	state.trolleyAssignments = [];
 	renderTrolleyPlanCardOnly();
 }
 
