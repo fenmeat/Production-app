@@ -188,7 +188,13 @@ async function loadPlanForDate() {
 		state.trolleyAssignments = [];
 		state.polonyTrolleys = buildDefaultPolonyTrolleys(state.polonyPlan);
 		applySavedTrolleyPlan(savedTrolleyData); // overrides trolleyAssignments, polonyTrolleys, and produceOverride
-		state.trolleyAssignments = reconcileTrolleyAssignments(state.trolleyAssignments, state.batchesRequired);
+		// FIXED 19 August 2026 — reconcileTrolleyAssignments() used to run here immediately
+		// after restoring a saved plan, checking it against batchesRequired computed BEFORE
+		// applySavedTrolleyPlan's produce overrides took effect. Any mismatch (forecast
+		// shifting slightly, a coldroom-batches field resetting on reload, etc.) silently
+		// stripped correctly-saved trolleys before Alex ever saw them. A freshly-loaded saved
+		// plan is trusted as-is now — the safety net still runs from refreshTrolleyPlanCard()
+		// whenever Alex actually edits something during the session (see trolley-plan.js).
 
 		// Only now is displayProduce(p) meaningful for every product (Stock/Coldroom loaded,
 		// Trolley/Polony plans computed, any saved Produce override restored) — so actuals
